@@ -1,2 +1,3 @@
 # onos-latency
-Caculate some network parameters of links
+- Calculate some network parameters of links (delay, packet loss and rate on each port)
+- Calculate the breakpoint in the network parameters
