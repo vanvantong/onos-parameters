@@ -68,6 +68,13 @@ import java.lang.*;
 import java.util.*;
 import org.onosproject.net.device.PortStatistics;
 
+
+import java.io.BufferedReader;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
 /**
  * Run discovery process from a physical switch. Ports are initially labeled as
  * slow ports. When an LLDP is successfully received, label the remote port as
@@ -90,6 +97,15 @@ public class LinkDiscovery implements TimerTask {
 
     private Timeout timeout;
     private volatile boolean isStopped;
+
+    ArrayList<Timestamp> timePara = new ArrayList<Timestamp>();
+    // Initializing a dictionary of link delay
+    Map<String, ArrayList<Long>> linkDelay = new HashMap<String, ArrayList<Long>>();
+    Map<String, ArrayList<Long>> linkPacketLoss = new HashMap<String, ArrayList<Long>>();
+    Map<String, ArrayList<Long>> linkRate = new HashMap<String, ArrayList<Long>>(); 
+
+    Map<String, Integer> countPara = new HashMap<String, Integer>();
+
 
     // Set of ports to be probed
     private final Map<Long, String> portMap = Maps.newConcurrentMap();
@@ -206,6 +222,74 @@ public class LinkDiscovery implements TimerTask {
 
         return false;
     }
+
+    /*
+     * Calculate the breakpoint on each link
+     * 
+     *
+     * @param id  The id of port
+     * @param cts  The current timestamp
+     * @param delay_link  The delay of link
+     * @param packet_loss  The packet loss on each link
+     * @param rate_link  The rateRx/rateTx     
+     * @return true if handled
+     */
+    public boolean breakPointCal(String id, Timestamp cts, long delay_link, long packet_loss, long rate_link){
+
+        if(linkDelay.containsKey(id)){
+            int tmp = countPara.get(id);
+            if(tmp < 10){
+                if(linkDelay.get(id).size() != 200){
+                    linkDelay.get(id).add(delay_link);
+                    linkPacketLoss.get(id).add(packet_loss);
+                    linkRate.get(id).add(rate_link);
+                }else{
+                    linkDelay.get(id).set(tmp, delay_link);
+                    linkPacketLoss.get(id).set(tmp, packet_loss);
+                    linkRate.get(id).set(tmp, rate_link);
+                }
+                            
+            }else{
+                countPara.replace(id, tmp - 200);
+                linkDelay.get(id).set(countPara.get(id), delay_link);
+                linkPacketLoss.get(id).set(countPara.get(id), packet_loss);
+                linkRate.get(id).set(countPara.get(id), rate_link);
+            }
+            countPara.replace(id, countPara.get(id) + 1);
+        }else{
+            linkDelay.put(id, new ArrayList<Long>());
+            linkPacketLoss.put(id, new ArrayList<Long>());
+            linkRate.put(id, new ArrayList<Long>());
+
+            linkDelay.get(id).add(delay_link);
+            linkPacketLoss.get(id).add(packet_loss);
+            linkRate.get(id).add(rate_link);
+            countPara.put(id, 1);
+        }
+
+        BufferedReader reader = null;
+        Process shell = null;
+        try {
+            shell = Runtime.getRuntime().exec(new String[] { "Rscript", "/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/BreakPointDetection.R" });
+            reader = new BufferedReader(new InputStreamReader(shell.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                log.info("************");
+                log.info("Location:{}",line);
+                log.info("************");
+
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        //log.info("\nPort: {}, Size of link delay: {}, Array: {}, Count: {}\n", id, linkDelay.get(id).size(), linkDelay.get(id).toString(), countPara.get(id));
+        //log.info("\nPort: {}, Size of packet loss: {}, Array: {}, Count: {}\n", id, linkPacketLoss.get(id).size(), linkPacketLoss.get(id).toString(), countPara.get(id));
+        //log.info("\nPort: {}, Size of link rate: {}, Array: {}, Count: {}\n", id, linkRate.get(id).size(), linkRate.get(id).toString(), countPara.get(id));
+        return true;
+    }
+
+
     /*
      * Calculate the delay on each link
      * 
@@ -234,7 +318,7 @@ public class LinkDiscovery implements TimerTask {
      * @param sPort  The port which need to monitor 
      * @return true if handled
      */
-    public boolean statisticsCal(DeviceId deviceId, PortNumber sPort){
+    public String statisticsCal(DeviceId deviceId, PortNumber sPort){
 
         //Calculate the statistic
         DeviceService deviceService = context.deviceService();
@@ -242,13 +326,20 @@ public class LinkDiscovery implements TimerTask {
         List<PortStatistics> portStatisticsList =  deviceService.getPortDeltaStatistics(d.id());
         for (PortStatistics portStats : portStatisticsList) {
             if(portStats.portNumber().toLong() == sPort.toLong()){
-                float duration = (float) portStats.durationSec();
-                float rateRx = duration > 0 ? portStats.bytesReceived() * 8 / duration : 0;
-                float rateTx = duration > 0 ? portStats.bytesSent() * 8 / duration : 0;
+                long duration = (long) portStats.durationSec();
+                long rateRx = duration > 0 ? portStats.bytesReceived() * 8 / duration : 0;
+                long rateTx = duration > 0 ? portStats.bytesSent() * 8 / duration : 0;
                 log.info("\n\n{}:{} received {} bytes, {} packets, rateReceiver {} bps and sent {} bytes, {} packets, rateSender {} bps with time interval of {} s\n\n", deviceId, portStats.portNumber(), portStats.bytesReceived(), portStats.packetsReceived(), rateRx, portStats.bytesSent(),  portStats.packetsSent(), rateTx, duration);
+                if(portStats.packetsReceived() > 0){
+                    long packetLoss = (long)(portStats.packetsReceived() - portStats.packetsSent())/portStats.packetsReceived();
+                    long rate = rateRx/rateTx;
+                    String s = String.valueOf(packetLoss)+","+String.valueOf(rate);
+                    return s;
+                }
+                
             }
         }
-        return true;
+        return "";
     } 
     private boolean processOnosLldp(PacketContext packetContext, Ethernet eth) {
         ONOSLLDP onoslldp = ONOSLLDP.parseONOSLLDP(eth);
@@ -289,7 +380,19 @@ public class LinkDiscovery implements TimerTask {
                     log.info("Link from {}:{} to {}:{}, Delay: {} ms", srcDeviceId, srcPort, dstDeviceId, dstPort, delay);
                     
                     //Calculate the statistic
-                    statisticsCal(srcDeviceId, srcPort);
+                    String strTmp = statisticsCal(srcDeviceId, srcPort);
+                    long plLink = 0;
+                    long rLink = 0;
+                    if (strTmp != ""){
+                        String[] strPara = strTmp.split(",");
+                        plLink = Long.parseLong(strPara[0]);
+                        rLink = Long.parseLong(strPara[1]);
+                    }
+                    Timestamp current_timestamp_para = new Timestamp(System.currentTimeMillis());
+                    String idPort = srcDeviceId.toString()+":"+srcPort.toString();
+
+                    breakPointCal(idPort, current_timestamp_para, delay, plLink, rLink);
+
 
 
 
