@@ -102,11 +102,16 @@ public class LinkDiscovery implements TimerTask {
 
     ArrayList<Timestamp> timePara = new ArrayList<Timestamp>();
     // Initializing a dictionary of link delay
-    Map<String, ArrayList<Long>> linkDelay = new HashMap<String, ArrayList<Long>>();
-    Map<String, ArrayList<Long>> linkPacketLoss = new HashMap<String, ArrayList<Long>>();
-    Map<String, ArrayList<Long>> linkRate = new HashMap<String, ArrayList<Long>>(); 
+    Map<String, ArrayList<Float>> linkDelay = new HashMap<String, ArrayList<Float>>();
+    Map<String, ArrayList<Float>> linkPacketLoss = new HashMap<String, ArrayList<Float>>();
+    Map<String, ArrayList<Float>> linkRate = new HashMap<String, ArrayList<Float>>(); 
 
-    public int arrSize = 200;
+
+
+    float link_capacity = 25;
+    int threshold_packet_loss = 1000;
+
+    public int arrSize = 1000;
 
     Map<String, Integer> countPara = new HashMap<String, Integer>();
 
@@ -300,7 +305,7 @@ public class LinkDiscovery implements TimerTask {
      * @param rate_link  The rateRx/rateTx     
      * @return true if handled
      */
-    public boolean breakPointCal(String id, Timestamp cts, long delay_link, long packet_loss, long rate_link){
+    public boolean breakPointCal(String id, Timestamp cts, float delay_link, float packet_loss, float rate_link){
 
         if(linkDelay.containsKey(id)){
             int tmp = countPara.get(id);
@@ -323,9 +328,9 @@ public class LinkDiscovery implements TimerTask {
             }
             countPara.replace(id, countPara.get(id) + 1);
         }else{
-            linkDelay.put(id, new ArrayList<Long>());
-            linkPacketLoss.put(id, new ArrayList<Long>());
-            linkRate.put(id, new ArrayList<Long>());
+            linkDelay.put(id, new ArrayList<Float>());
+            linkPacketLoss.put(id, new ArrayList<Float>());
+            linkRate.put(id, new ArrayList<Float>());
 
             linkDelay.get(id).add(delay_link);
             linkPacketLoss.get(id).add(packet_loss);
@@ -372,6 +377,8 @@ public class LinkDiscovery implements TimerTask {
     }
 
 
+
+
     /*
      * Calculate the delay on each link
      * 
@@ -379,7 +386,7 @@ public class LinkDiscovery implements TimerTask {
      * @param onoslldpDelay  The lldp packet on each link
      * @return the link delay
      */
-    public long delayCal(ONOSLLDP onoslldpDelay){
+    public long delayCal(ONOSLLDP onoslldpDelay, String id){
 
         //Calculate the link's delay using lldp
         Timestamp current_timestamp = new Timestamp(System.currentTimeMillis());
@@ -388,6 +395,26 @@ public class LinkDiscovery implements TimerTask {
         str_timestamp_tmp.flip();
         long lldp_ts_nano = str_timestamp_tmp.getLong();
         long delay = current_ts_nano - lldp_ts_nano;
+
+        //Remove the timestamp when the lldp packet reaches the controller
+        ONOSLLDP.removeElement(id, lldp_ts_nano);
+        ArrayList<Long> arrPacketLossLLDP = ONOSLLDP.getArray(id);
+
+        //log.info("Removing the timestamp of {} : {}", id, lldp_ts_nano);
+
+        int count_packet_loss = 0;
+        if(arrPacketLossLLDP.size() != 0){
+            for(int i = 0; i < arrPacketLossLLDP.size(); i++){
+                if(current_ts_nano - arrPacketLossLLDP.get(i) > threshold_packet_loss){
+                    count_packet_loss  = count_packet_loss + 1;
+                    ONOSLLDP.removeElement(id, arrPacketLossLLDP.get(i));
+                }
+                
+            }
+
+        }
+        log.info("\nPackets loss of LLDP of {}: {}\n", id, count_packet_loss);
+
         return delay;
     }
 
@@ -400,28 +427,85 @@ public class LinkDiscovery implements TimerTask {
      * @param sPort  The port which need to monitor 
      * @return true if handled
      */
-    public String statisticsCal(DeviceId deviceId, PortNumber sPort){
+    public String statisticsCal(DeviceId deviceId, PortNumber sPort, DeviceId dDeviceId, PortNumber dPort){
 
         //Calculate the statistic
         DeviceService deviceService = context.deviceService();
         Device d = deviceService.getDevice(deviceId);
-        List<PortStatistics> portStatisticsList =  deviceService.getPortDeltaStatistics(d.id());
-        for (PortStatistics portStats : portStatisticsList) {
+        List<PortStatistics> portStatisticsList =  deviceService.getPortStatistics(d.id());
+
+        float packetLoss = 0;
+        float link_utilization = 0;
+
+        //Null point exception
+        link_utilization = (deviceService.getStatisticsForPort(deviceService.getDevice(deviceId).id(), sPort).packetsSent() + deviceService.getStatisticsForPort(deviceService.getDevice(dDeviceId).id(), dPort).packetsSent())/(link_capacity * 1000000);
+        float pSent_Src = deviceService.getStatisticsForPort(deviceService.getDevice(deviceId).id(), sPort).packetsSent();
+        float pReceived_Dest = deviceService.getStatisticsForPort(deviceService.getDevice(deviceId).id(), dPort).packetsReceived();
+        log.info("\nId {}:{} with {} sent and {} received\n", deviceId, sPort, pSent_Src, pReceived_Dest);
+        if(pReceived_Dest > 0){
+            packetLoss = (pSent_Src - pReceived_Dest)/pSent_Src;
+        }else{
+            packetLoss = 0;
+        }
+        for (PortStatistics portStats : portStatisticsList) {   
             if(portStats.portNumber().toLong() == sPort.toLong()){
-                long duration = (long) portStats.durationSec();
-                long rateRx = duration > 0 ? portStats.bytesReceived() * 8 / duration : 0;
-                long rateTx = duration > 0 ? portStats.bytesSent() * 8 / duration : 0;
-                log.info("\n\n{}:{} received {} bytes, {} packets, rateReceiver {} bps, drop {} and sent {} bytes, {} packets, rateSender {} bps, drop {} with time interval of {} s\n\n", deviceId, portStats.portNumber(), portStats.bytesReceived(), portStats.packetsReceived(), rateRx, portStats.packetsRxDropped(), portStats.bytesSent(),  portStats.packetsSent(), rateTx, portStats.packetsTxDropped() , duration);
+                float duration = (float) portStats.durationSec();
+                float rateRx = duration > 0 ? portStats.bytesReceived() * 8 / duration : 0;
+                float rateTx = duration > 0 ? portStats.bytesSent() * 8 / duration : 0;
+                log.info("\n\n{}:{} received {} bytes, {} packets, rateReceiver {} bps, drop {}, {} and sent {} bytes, {} packets, rateSender {} bps, drop {}, {}  with time interval of {} s\n\n", deviceId, portStats.portNumber(), portStats.bytesReceived(), portStats.packetsReceived(), rateRx, portStats.packetsRxDropped(), portStats.packetsRxErrors(), portStats.bytesSent(),  portStats.packetsSent(), rateTx, portStats.packetsTxDropped(), portStats.packetsTxErrors() , duration);
+                /*
                 if(portStats.packetsReceived() > 0){
-                    long packetLoss = (long)(portStats.packetsRxDropped() / portStats.packetsReceived()) + (long) (portStats.packetsTxDropped() / portStats.packetsReceived());
-                    long rate = rateRx/rateTx;
+                    float packetLoss =  ((float)portStats.packetsSent() - (float)portStats.packetsReceived()) / (float)portStats.packetsSent();
+                    float rate = (float)rateRx/(float)rateTx;
                     String s = String.valueOf(packetLoss)+","+String.valueOf(rate);
+
                     return s;
                 }
-                
+                */
             }
+        
         }
-        return "";
+
+        
+        /*
+        float duration = 0;
+        float rateRx = 0;
+        float rateTx = 0;
+        float pReceived = 0;
+        float pSent = 0;
+        float rate = 0;
+        float kbReceived_Id = 0;
+        float kbSent_Id = 0;
+        for (PortStatistics portStats : portStatisticsList) {
+            duration = duration + (float) portStats.durationSec();
+            float rateRx_tmp = duration > 0 ? portStats.bytesReceived() / (duration * 1000) : 0;
+            float rateTx_tmp = duration > 0 ? portStats.bytesSent() / (duration * 1000) : 0;
+            rateRx = rateRx + (float)rateRx_tmp;
+            rateTx = rateTx + (float)rateTx_tmp;
+            pReceived = pReceived + (float)portStats.packetsReceived();
+            pSent = pSent + (float)portStats.packetsSent();
+            kbReceived_Id = kbReceived_Id + (float)portStats.bytesReceived();
+            kbSent_Id = kbSent_Id + (float)portStats.bytesSent();
+        }
+        if(portStatisticsList.size() > 0){
+            int size = portStatisticsList.size();
+            duration = duration / size;
+            pReceived = pReceived / size;
+            pSent = pSent / size;
+            rate = pReceived / pSent;
+            kbReceived_Id = kbReceived_Id / (size * 1000);
+            kbSent_Id = kbSent_Id / (size * 1000);
+            log.info("\n\n{}:{} received {} Kbytes, {} packets, rateReceiver {} KBps and sent {} Kbytes, {} packets, rateSender {} KBps, link utilization: {}  with time interval of {} s\n\n", deviceId, sPort, kbReceived_Id, pReceived, rateRx/size, kbSent_Id,  pSent, rateTx/size, link_utilization, duration);
+            packetLoss = (pReceived - pSent)/pReceived;
+            String s = String.valueOf(packetLoss)+","+String.valueOf(rate);
+            return s;
+        }
+
+        */
+
+
+
+        return String.valueOf(packetLoss)+","+String.valueOf(link_utilization);
     } 
     private boolean processOnosLldp(PacketContext packetContext, Ethernet eth) {
         ONOSLLDP onoslldp = ONOSLLDP.parseONOSLLDP(eth);
@@ -457,29 +541,36 @@ public class LinkDiscovery implements TimerTask {
                     LinkDescription ld = new DefaultLinkDescription(src, dst, lt);
 
 
-                    //Calculate 
-                    long delay = delayCal(onoslldp);
-                    log.info("Link from {}:{} to {}:{}, Delay: {} ms", srcDeviceId, srcPort, dstDeviceId, dstPort, delay);
+
                     
                     //Calculate the statistic
-                    String strTmp = statisticsCal(srcDeviceId, srcPort);
-                    long plLink = 0;
-                    long rLink = 0;
+                    String strTmp = statisticsCal(srcDeviceId, srcPort, dstDeviceId, dstPort);
+                    float plLink = 0;
+                    float rLink = 0;
                     if (strTmp != ""){
                         String[] strPara = strTmp.split(",");
-                        plLink = Long.parseLong(strPara[0]);
-                        rLink = Long.parseLong(strPara[1]);
+                        plLink = Float.parseFloat(strPara[0]);
+                        rLink = Float.parseFloat(strPara[1]);
+                    }else{
+                        plLink = 0;
+                        rLink = 0;
                     }
+
                     Timestamp current_timestamp_para = new Timestamp(System.currentTimeMillis());
                     String idPort = srcDeviceId.toString()+"-"+srcPort.toString();
 
+                    //Calculate 
+                    long delay = delayCal(onoslldp, idPort);
+                    log.info("Link from {}:{} to {}:{}, Delay: {} ms", srcDeviceId, srcPort, dstDeviceId, dstPort, delay);
                     
-
-                    context.providerService().linkDetected(ld);
-                    context.touchLink(LinkKey.linkKey(src, dst));
 
                     //Calculate the breakpoint
                     breakPointCal(idPort, current_timestamp_para, delay, plLink, rLink);
+
+
+
+                    context.providerService().linkDetected(ld);
+                    context.touchLink(LinkKey.linkKey(src, dst));
 
                 } catch (IllegalStateException | IllegalArgumentException e) {
                     log.warn("There is a exception during link creation: {}", e.getMessage());
