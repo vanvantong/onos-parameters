@@ -760,6 +760,7 @@ public class LinkDiscovery implements TimerTask {
     private OutboundPacket createOutBoundBddp(Long portNumber, String portDesc) {
         if (portNumber == null) {
             return null;
+            
         }
         ONOSLLDP lldp = getLinkProbe(portNumber, portDesc);
         if (lldp == null) {
