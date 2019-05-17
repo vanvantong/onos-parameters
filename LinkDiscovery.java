@@ -473,6 +473,14 @@ public class LinkDiscovery implements TimerTask {
 
     public boolean writeToJsonFile(String nFile, String idLink, float weight)
     {   
+        try {
+            BufferedWriter bw = new BufferedWriter(new FileWriter(nFile, true));
+            bw.write(idLink+":"+weight + ";");
+            bw.close();
+        }catch (Exception e) {
+            e.printStackTrace();
+        }
+        
         /*
         try {
             String tmp = "";
