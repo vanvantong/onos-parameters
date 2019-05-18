@@ -79,6 +79,8 @@ import java.io.InputStreamReader;
 
 
 
+import org.onosproject.persistence.PersistenceService;
+
 /**
  * Run discovery process from a physical switch. Ports are initially labeled as
  * slow ports. When an LLDP is successfully received, label the remote port as
@@ -110,7 +112,8 @@ public class LinkDiscovery implements TimerTask {
 
     public float link_capacity = 25;
     public int threshold_packet_loss = 1000;
-    public float lWeight = 0;
+    public static float lWeight = 0;
+    public static String idLink = "";
     public int arrSize = 1000;
 
     public Map<String, Integer> countPara = new HashMap<String, Integer>();
@@ -582,7 +585,8 @@ public class LinkDiscovery implements TimerTask {
 
                     Timestamp current_timestamp_para = new Timestamp(System.currentTimeMillis());
                     String idPort = srcDeviceId.toString()+"-"+srcPort.toString();
-                    String idLink = srcDeviceId.toString()+"/"+srcPort.toString()+"-"+dstDeviceId.toString()+"/"+dstPort.toString();
+                    idLink = srcDeviceId.toString()+"-"+dstDeviceId.toString();
+                    //idLink = srcDeviceId.toString()+"/"+srcPort.toString();
                     //Calculate the link delay
                     dLink = delayCal(onoslldp, idPort);
 
@@ -595,7 +599,7 @@ public class LinkDiscovery implements TimerTask {
                     double lWeight_tmp = Math.round(lWeight * Math.pow(10, 5)) / Math.pow(10, 5);
                     lWeight = (float)lWeight_tmp;
                     //Write to file
-                    writeToJsonFile("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/link_para.csv", idLink, lWeight);
+                    //writeToJsonFile("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/link_para.csv", idLink, lWeight);
 
                     //log.info("\nLink from {}:{} to {}:{}, Delay: {} ms, Packet loss: {}, Link utilization: {}\n", srcDeviceId, srcPort, dstDeviceId, dstPort, oneLinkDelay.get(idPort), oneLinkPacketLoss.get(idPort), oneLinkRate.get(idPort));
                     //Calculate the breakpoint
