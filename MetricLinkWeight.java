@@ -26,7 +26,6 @@ import static org.slf4j.LoggerFactory.getLogger;
 import org.slf4j.Logger;
 
 /**
-
  * Link weight for measuring link cost using the link metric annotation.
  */
 class LinkWeight implements LinkWeigher  {
@@ -45,15 +44,12 @@ class LinkWeight implements LinkWeigher  {
     @Override
     public Weight weight(TopologyEdge edge) {
         float w = ReactiveForwarding.link_Weight.get(edge.src().toString()+"-"+edge.dst().toString());
-        //log.info("\n********************Edge: {}, Weight:{} ********************\n",edge, w);
-        //for(String s: ReactiveForwarding.link_Weight.keySet()){
-        //    log.info("\n********************Edge:{}, Weight: {} ********************\n",edge, ReactiveForwarding.link_Weight.get(s));
-        //}
+        //log.info("\n********************edge: {}, Weight: {}********************\n", edge, w);
         String v = edge.link().annotations().value(AnnotationKeys.METRIC);
         try {
             return ScalarWeight.toWeight(v != null ? Double.parseDouble(v) : w);
         } catch (NumberFormatException e) {
-            return ScalarWeight.toWeight(1.0);
+            return ScalarWeight.toWeight(0.001);
         }
     }
 }
