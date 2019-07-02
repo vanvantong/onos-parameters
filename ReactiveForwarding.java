@@ -122,6 +122,7 @@ import static org.onosproject.fwd.OsgiPropertyConstants.RECORD_METRICS_DEFAULT;
 import static org.slf4j.LoggerFactory.getLogger;
 
 import java.util.HashMap;
+import java.util.HashMap;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -130,7 +131,9 @@ import java.io.FileReader;
 import java.io.IOException;
 import org.onosproject.net.topology.TopologyEdge;
 import org.onosproject.net.topology.LinkWeigher;
-
+import java.util.ArrayList;
+import java.sql.Timestamp;
+import org.onosproject.net.topology.Topology;
 
 /**
  * Sample reactive forwarding application.
@@ -240,6 +243,10 @@ public class ReactiveForwarding {
     private ExecutorService blackHoleExecutor;
 
     public static Map<String, Float> link_Weight = new HashMap<String, Float>();
+    public static Map<String, String> routingPaths = new HashMap<String, String>();
+
+    public ArrayList<String> arrLinks = new ArrayList<String>();
+    public ArrayList<String> edgeNodes = new ArrayList<String>();
 
 
     @Activate
@@ -478,10 +485,77 @@ public class ReactiveForwarding {
      */
     private class ReactivePacketProcessor implements PacketProcessor {
 
+        public Set<Path> weightRouting(Topology topology, DeviceId src, DeviceId dst){
+            try {
+                BufferedReader brWeight = new BufferedReader(new FileReader("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/link_para.csv"));
+                String strCurrentLine = "";
+                while ((strCurrentLine = brWeight.readLine()) != null){
+                    String[] tmp = strCurrentLine.split(";");
+                    for(int i = 0; i < tmp.length; i++){
+                        String[] s = tmp[i].split("\\*");
+                        if(s.length == 4){
+                            String[] d = s[1].split(",");
+                            String[] p = s[2].split(","); 
+                            String[] r = s[3].split(",");
+                            float w = 0;
+                            float delay = 0;
+                            float packetloss = 0;
+                            float rate = 0;
+                            if(d.length == 10 && p.length == 10 && r.length == 10){
+                                if(Float.parseFloat(d[9]) > 1000){
+                                    delay = 1;
+                                }else{
+                                    delay = Float.parseFloat(d[9])/1000;
+                                }
+                                if(Float.parseFloat(p[9]) > 0.01){
+                                    packetloss = 1;
+                                }else{
+                                    packetloss = Float.parseFloat(p[9]) * 100; // divide 0.01
+                                }
+                                if(Float.parseFloat(r[9]) > 1){
+                                    rate = 1;
+                                }else{
+                                    rate = Float.parseFloat(r[9]);
+                                }
+                                w = (float)0.33 * (delay + packetloss + rate) * 1000;
+                                //log.info("\n\n**********Weight: {}**********\n\n", w);
+                                /*
+                                if(Float.parseFloat(d[9]) > 1000){
+                                    w = (float)0.33 * (1 + Float.parseFloat(p[9]));
+                                    //w = (float)0.33 * (1 + Float.parseFloat(p[9])  + Float.parseFloat(r[9]));
+                                }else{
+                                    w = (float)0.33 * (Float.parseFloat(d[9])/1000 + Float.parseFloat(p[9]));
+                                    //w = (float)0.33 * (Float.parseFloat(d[9])/1000 + Float.parseFloat(p[9]) + Float.parseFloat(r[9]));
+                                }
+                                */
+                            } 
+                            if(!link_Weight.keySet().contains(s[0])){
+                                link_Weight.put(s[0], w);
+                            }else{
+                                link_Weight.replace(s[0], w);
+                            }
+                        }
+
+                    }
+                }  
+                brWeight.close();
+            }catch (Exception e) {
+                e.printStackTrace();
+            }
+            LinkWeigher weightTopology = new LinkWeight();
+            Set<TopologyEdge> egdes = topologyService.getGraph(topologyService.currentTopology()).getEdges();
+            for(TopologyEdge egde: egdes){
+                weightTopology.weight(egde);
+            }
+            Set<Path> paths =topologyService.getPaths(topology, src, dst, weightTopology);
+
+            return paths;
+        }     
+
         @Override
         public void process(PacketContext context) {
             // Stop processing if the packet has been handled, since we
-            // can't do any more to it.
+            // can't do any more to it.            
 
             if (context.isHandled()) {
                 return;
@@ -544,46 +618,147 @@ public class ReactiveForwarding {
 
             // Otherwise, get a set of paths that lead from here to the
             // destination edge switch.
-            /*
-            Set<Path> paths =
-                    topologyService.getPaths(topologyService.currentTopology(),
-                                             pkt.receivedFrom().deviceId(),
-                                             dst.location().deviceId());
-            */
 
+            String link = pkt.receivedFrom().deviceId().toString() + "-" + dst.location().deviceId().toString();
+            int trigger = -1;
 
+            Set<Path> paths = null;
+
+            //paths = topologyService.getPaths(topologyService.currentTopology(), pkt.receivedFrom().deviceId(), dst.location().deviceId());
+            //QoS-aware routing
+            //paths = weightRouting(topologyService.currentTopology(), pkt.receivedFrom().deviceId(), dst.location().deviceId());
+
+                        
+            //Assign the adge node of topology
+            edgeNodes.add("of:0000000000000001"); 
+            edgeNodes.add("of:0000000000000007"); 
+            //edgeNodes.add("of:000000000000000f"); 
+
+            
+            
+            
+            String underPerformanceLink = "";
             try {
-                BufferedReader br = new BufferedReader(new FileReader("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/link_para.csv"));
+                BufferedReader brRouting = new BufferedReader(new FileReader("/home/vantong/onos/apps/fwd/src/main/java/org/onosproject/fwd/routing-para.csv"));
                 String strCurrentLine = "";
-                while ((strCurrentLine = br.readLine()) != null){
-                    String[] tmp = strCurrentLine.split(";");
-                    for(int i = 0; i < tmp.length; i++){
-                        String[] s = tmp[i].split(",");
-                        if(!link_Weight.keySet().contains(s[0])){
-                            link_Weight.put(s[0], Float.parseFloat(s[1]));
-                        }else{
-                            link_Weight.replace(s[0], Float.parseFloat(s[1]));
+                    
+                while ((strCurrentLine = brRouting.readLine()) != null){
+                    if(strCurrentLine.contains(link)){
+                        String[] s = strCurrentLine.split(";");
+                        if(s.length == 3){
+                            trigger = Integer.parseInt(s[2]);
+                            underPerformanceLink = s[1];
+                            //log.info("\n**********UPLink: {} **********\n", underPerformanceLink);
                         }
                     }
-                }  
-                br.close();
+                }
+                brRouting.close();
             }catch (Exception e) {
                 e.printStackTrace();
             }
-            LinkWeigher weightTopology = new LinkWeight();
-            Set<TopologyEdge> egdes = topologyService.getGraph(topologyService.currentTopology()).getEdges();
-            for(TopologyEdge egde: egdes){
-                //log.info("\n********************Egde: {}********************\n", egde);
-                weightTopology.weight(egde);
-            }
+                
+            if(trigger != 1){
 
-            //LldpLinkProvider
-            //log.info("\n********************Size: {}\n", link_Weight.keySet().size());
-            Set<Path> paths =
+                paths =
                     topologyService.getPaths(topologyService.currentTopology(),
+                                                pkt.receivedFrom().deviceId(),
+                                                    dst.location().deviceId());
+
+            }else{
+                paths = weightRouting(topologyService.currentTopology(), pkt.receivedFrom().deviceId(), dst.location().deviceId());
+
+                try {
+                BufferedWriter writer = new BufferedWriter(new FileWriter("/home/vantong/onos/apps/fwd/src/main/java/org/onosproject/fwd/Paths.csv", true));
+                writer.write(paths.toString()+'\n');
+                writer.close();
+                }catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+            
+            
+
+            /////////////////////////////////////////////////////////////////////////////////
+            /*
+            //Apply re-routing in selected paths
+            if(!routingPaths.keySet().contains(link)){
+                if(edgeNodes.contains(pkt.receivedFrom().deviceId().toString()) && edgeNodes.contains(dst.location().deviceId().toString())){
+                    paths =
+                        topologyService.getPaths(topologyService.currentTopology(),
                                              pkt.receivedFrom().deviceId(),
-                                             dst.location().deviceId(),
-                                             weightTopology);
+                                             dst.location().deviceId());
+                }else{//***********************************************************
+                    
+                    int wRouting = -1;
+                    
+                    try {
+                        BufferedReader brRouting = new BufferedReader(new FileReader("/home/vantong/onos/apps/fwd/src/main/java/org/onosproject/fwd/routing-para.csv"));
+                        String strCurrentLine = "";
+                        
+                        while ((strCurrentLine = brRouting.readLine()) != null){
+                            if(strCurrentLine.contains(link)){
+                                String[] s = strCurrentLine.split(";");
+                                if(s.length == 3){
+                                    int trigger = Integer.parseInt(s[2]);
+                                    if(s[1].contains(pkt.receivedFrom().deviceId().toString()) && s[1].contains(dst.location().deviceId().toString()) && trigger == 1){
+                                        wRouting = 1;
+                                    }
+                                }
+
+                            }
+                        }
+                        brRouting.close();
+                    }catch (Exception e) {
+                        e.printStackTrace();
+                    }
+
+                    if(wRouting == 1){
+                        paths = weightRouting(topologyService.currentTopology(), pkt.receivedFrom().deviceId(), dst.location().deviceId());
+                    }else{
+                        paths =
+                            topologyService.getPaths(topologyService.currentTopology(),
+                                                 pkt.receivedFrom().deviceId(),
+                                                 dst.location().deviceId());                    
+                    }
+                }
+
+            }else {
+            
+                int trigger = -1;
+                
+                try {
+                    BufferedReader brRouting = new BufferedReader(new FileReader("/home/vantong/onos/apps/fwd/src/main/java/org/onosproject/fwd/routing-para.csv"));
+                    String strCurrentLine = "";
+                    
+                    while ((strCurrentLine = brRouting.readLine()) != null){
+                        if(strCurrentLine.contains(link)){
+                            String[] s = strCurrentLine.split(";");
+                            if(s.length == 3){
+                                trigger = Integer.parseInt(s[2]);
+                            }
+                        }
+                    }
+                    brRouting.close();
+                }catch (Exception e) {
+                    e.printStackTrace();
+                }
+                
+                if(trigger != 1){
+
+                    paths =
+                            topologyService.getPaths(topologyService.currentTopology(),
+                                                   pkt.receivedFrom().deviceId(),
+                                                     dst.location().deviceId());
+
+                }else{
+                    paths = weightRouting(topologyService.currentTopology(), pkt.receivedFrom().deviceId(), dst.location().deviceId());
+                }
+
+            }
+            
+
+            */
+            //////////////////////////////////////////////////////////////////////////////////////
             if (paths.isEmpty()) {
                 // If there are no paths, flood and bail.
                 flood(context, macMetrics);
@@ -593,6 +768,7 @@ public class ReactiveForwarding {
             // Otherwise, pick a path that does not lead back to where we
             // came from; if no such path, flood and bail.
             Path path = pickForwardPathIfPossible(paths, pkt.receivedFrom().port());
+
             if (path == null) {
                 log.warn("Don't know where to go from here {} for {} -> {}",
                          pkt.receivedFrom(), ethPkt.getSourceMAC(), ethPkt.getDestinationMAC());
@@ -600,8 +776,43 @@ public class ReactiveForwarding {
                 return;
             }
 
+
             // Otherwise forward and be done with it.
             installRule(context, path.src().port(), macMetrics);
+            
+            
+            if(pkt.receivedFrom().deviceId().toString().equals("of:0000000000000001") && dst.location().deviceId().toString().equals("of:0000000000000007")){
+            //if(pkt.receivedFrom().deviceId().toString().equals("of:0000000000000001") && dst.location().deviceId().toString().equals("of:000000000000000f")){
+                List<Link> rPaths = path.links();
+                arrLinks.clear();
+                String tmp = "";            
+                for(Link l : rPaths){
+                    String srcLink = l.src().toString();
+                    String dstLink = l.dst().toString();
+                    String s = srcLink.substring(0, srcLink.length()-2)+"-"+dstLink.substring(0, dstLink.length()-2);
+                    if(s.contains("/")){
+                        s = s.replace("/", "");
+                    }
+                    arrLinks.add(s);
+                }
+                try {
+                    BufferedWriter wrRouting = new BufferedWriter(new FileWriter("/home/vantong/onos/apps/fwd/src/main/java/org/onosproject/fwd/routing-para.csv"));
+                    for(String s:arrLinks){
+                        tmp = tmp + ","+s;
+                    }
+                    tmp = tmp.substring(1, tmp.length());
+                    wrRouting.write(link+";"+tmp+";"+trigger);
+
+                    wrRouting.close();       
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                routingPaths.put(link, tmp);
+            }
+            
+            
+
+
         }
 
     }
