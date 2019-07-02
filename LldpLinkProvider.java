@@ -160,7 +160,7 @@ public class LldpLinkProvider extends AbstractProvider implements ProbedLinkProv
 
 
 
-    public Map<String, Float> linkWeight = new HashMap<String, Float>();
+    public Map<String, ArrayList<String>> linkWeight = new HashMap<String, ArrayList<String>>();
 
     private boolean shuttingDown = false;
 
@@ -700,6 +700,32 @@ public class LldpLinkProvider extends AbstractProvider implements ProbedLinkProv
             if (ld.handleLldp(context)) {
                 context.block();
             }
+
+            ArrayList<String> arrNetWorkPara = new ArrayList<String>();
+            arrNetWorkPara.add(LinkDiscovery.de_link);
+            arrNetWorkPara.add(LinkDiscovery.pl_link);
+            arrNetWorkPara.add(LinkDiscovery.r_link);
+            if(!linkWeight.keySet().contains(LinkDiscovery.idLink)){
+                linkWeight.put(LinkDiscovery.idLink, arrNetWorkPara);
+            }else{
+                linkWeight.replace(LinkDiscovery.idLink, arrNetWorkPara);
+            }
+            try {
+                BufferedWriter bw = new BufferedWriter(new FileWriter("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/link_para.csv"));
+                String wString = "";
+                for(String s: linkWeight.keySet()){
+                    if(linkWeight.get(s).size() == 3){
+                        wString = wString + ";" + s+"*"+ linkWeight.get(s).get(0)+"*"+ linkWeight.get(s).get(1)+"*"+ linkWeight.get(s).get(2);
+                    }
+                    
+                }
+                bw.write(wString.substring(1, wString.length()));
+                bw.close();
+            }catch (Exception e) {
+            e.printStackTrace();
+            }
+
+            /*
             //Save link weight to file for path computation
             if(!linkWeight.keySet().contains(LinkDiscovery.idLink)){
                 linkWeight.put(LinkDiscovery.idLink, LinkDiscovery.lWeight);
@@ -712,12 +738,13 @@ public class LldpLinkProvider extends AbstractProvider implements ProbedLinkProv
                 for(String s: linkWeight.keySet()){
                     wString = wString + ";" + s+","+ linkWeight.get(s);
                 }
-                bw.write(wString.substring(1, wString.length() -1));
+                bw.write(wString.substring(1, wString.length()));
                 bw.close();
             }catch (Exception e) {
             e.printStackTrace();
             }
             //log.info("\n*********************************Size:{}, Link: {}, Weight: {}\n", linkWeight.keySet().size(), LinkDiscovery.idLink, LinkDiscovery.lWeight);
+            */
         }
     }
 
