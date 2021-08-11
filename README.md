@@ -1,5 +1,5 @@
 # Network parameters in ONOS
-- Calculate some network parameters of links (delay, packet loss and link utilization on each link)
+- Calculate network parameters of links (delay, packet loss and link utilization on each link)
 - Change above files following below directories to measure parameters against time (please backup these files before changing it).
 - These files are used for ONOS 2.4.
 - Directories:
