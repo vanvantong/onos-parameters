@@ -97,7 +97,11 @@ import java.io.FileWriter;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.Arrays;
+import static java.util.Arrays.asList; 
 
+import org.onosproject.net.device.PortStatistics;
+import org.onosproject.net.PortNumber;
 
 /**
  * Provider which uses LLDP and BDDP packets to detect network infrastructure links.
@@ -161,12 +165,24 @@ public class LldpLinkProvider extends AbstractProvider implements ProbedLinkProv
 
 
     public Map<String, ArrayList<String>> linkWeight = new HashMap<String, ArrayList<String>>();
+    public Map<String, ArrayList<String>> portStaTopo = new HashMap<String, ArrayList<String>>();
+    public Map<String, Float> avgRateQoEArr = new HashMap<String, Float>(); 
+    public Map<Integer, Double> arrLossPath = new HashMap<Integer, Double>(){{
+        put(0, 0.0);
+        put(1, 0.0);
+        put(2, 0.0);
+        put(3, 0.0);
+        put(4, 0.0);
+
+    }};
 
     private boolean shuttingDown = false;
 
     // TODO: Add sanity checking for the configurable params based on the delays
     private static final long DEVICE_SYNC_DELAY = 5;
     private static final long LINK_PRUNER_DELAY = 3;
+
+    private static final long Loss_Window = 3;
 
     /** If false, link discovery is disabled. */
     protected boolean enabled = false;
@@ -210,6 +226,9 @@ public class LldpLinkProvider extends AbstractProvider implements ProbedLinkProv
 
     public static final String CONFIG_KEY = "suppression";
     public static final String FEATURE_NAME = "linkDiscovery";
+
+    public String previousWString = "";
+    ArrayList<String> arrLink = new ArrayList<String>();
 
     private final Set<ConfigFactory<?, ?>> factories = ImmutableSet.of(
             new ConfigFactory<ApplicationId, SuppressionConfig>(APP_SUBJECT_FACTORY,
@@ -372,6 +391,7 @@ public class LldpLinkProvider extends AbstractProvider implements ProbedLinkProv
                                      DEVICE_SYNC_DELAY, DEVICE_SYNC_DELAY, SECONDS);
         executor.scheduleAtFixedRate(new LinkPrunerTask(),
                                      LINK_PRUNER_DELAY, LINK_PRUNER_DELAY, SECONDS);
+        executor.scheduleAtFixedRate(new lossCal(), Loss_Window, Loss_Window, SECONDS);
 
         requestIntercepts();
     }
@@ -677,6 +697,130 @@ public class LldpLinkProvider extends AbstractProvider implements ProbedLinkProv
         }
     }
 
+
+    //Cal loss of path each 3s
+    private final class lossCal implements Runnable {
+    //public void lossCal(){
+        @Override
+        public void run() {
+            int numAction = 5;
+            String tmpStrLoss= "";
+            
+            //map.put("dog", "type of animal");  
+            DeviceId sDeviceID = null;
+            DeviceId dDeviceID = null;
+            PortNumber srcPort = PortNumber.portNumber(6);
+            
+            double packetSent = 0, packetReceived = 0;
+            double loss = 0;
+            //Cal cumulative loss on path
+
+            if(deviceService != null){
+                //log.info("\n********************************Hello 0\n");
+                for(Device d: deviceService.getDevices()){
+                    if(d.id().toString().compareTo("of:0000000000000006") == 0){
+                        sDeviceID = d.id();
+                    }else if(d.id().toString().compareTo("of:0000000000000007") == 0){
+                        dDeviceID = d.id();
+                    }
+
+                }
+                if(sDeviceID != null){
+                    PortStatistics sPortStatistic = deviceService.getDeltaStatisticsForPort(sDeviceID, srcPort);
+                    if(sPortStatistic != null){
+                        packetReceived = sPortStatistic.packetsReceived();
+                    }  
+                }
+                
+                //Max_QoE
+                int action = 0;
+                if(dDeviceID != null){
+                    try {
+                        BufferedReader reader = new BufferedReader(new FileReader("/home/vantong/onos/apps/segmentrouting/app/src/main/java/org/onosproject/segmentrouting/RoutingPaths.csv"));
+                        action = Integer.parseInt(reader.readLine());
+                        reader.close();
+                    }catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    PortNumber dstPort = PortNumber.portNumber(action+1);
+                    PortStatistics dPortStatistic = deviceService.getDeltaStatisticsForPort(dDeviceID, dstPort);
+                    if(dPortStatistic != null){
+                            
+                        packetSent = dPortStatistic.packetsReceived();
+                        if(packetReceived > packetSent && packetReceived != 0){
+                            loss = (packetReceived - packetSent)/packetReceived;
+                        }else{
+                            loss = 0;
+                        }
+                    }
+                    if(loss > 0.75){
+                        loss = 0;
+                    }
+                    //Nomalize loss with maximum loss of 20%
+                    loss = loss / 0.2;
+                    if(loss > 1){
+                        loss = 1;
+                    }
+                    //tmpStrLoss = tmpStrLoss + String.valueOf(i)+":"+String.valueOf(loss)+";";
+                    arrLossPath.replace(action, loss);
+
+                    for(int i = 0; i < arrLossPath.size(); i++){
+                        tmpStrLoss = tmpStrLoss + String.valueOf(i)+":"+String.valueOf(arrLossPath.get(i))+";";
+                    }
+                    log.info("\n********************************Action: {}, Received: {}, Sent: {}, Loss: {}\n", action,packetReceived,packetSent, tmpStrLoss);
+                    try {
+                        tmpStrLoss = tmpStrLoss.substring(0,tmpStrLoss.length()-1);
+                        BufferedWriter bw_loss = new BufferedWriter(new FileWriter("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/loss.csv"));
+                        bw_loss.write(tmpStrLoss);
+                        bw_loss.close();                        
+                    }catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+                
+                /*
+                if(dDeviceID != null){
+                    for(int i = 0; i < numAction; i++){
+                        PortNumber dstPort = PortNumber.portNumber(i+1);
+                        PortStatistics dPortStatistic = deviceService.getDeltaStatisticsForPort(dDeviceID, dstPort);
+                        if(dPortStatistic != null){
+                            
+                            packetSent = dPortStatistic.packetsReceived();
+                            if(packetReceived > packetSent && packetReceived != 0){
+                                loss = (packetReceived - packetSent)/packetReceived;
+                            }else{
+                                loss = 0;
+                            }
+                        }
+                        if(loss > 0.75){
+                            loss = 0;
+                        }
+                        //Nomalize loss with maximum loss of 20%
+                        loss = loss / 0.2;
+                        if(loss > 1){
+                            loss = 1;
+                        }
+                        tmpStrLoss = tmpStrLoss + String.valueOf(i)+":"+String.valueOf(loss)+";";
+                        //arrLossPath.put(i, loss);
+                    }
+
+                    try {
+                        tmpStrLoss = tmpStrLoss.substring(0,tmpStrLoss.length()-1);
+                        BufferedWriter bw_loss = new BufferedWriter(new FileWriter("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/loss.csv"));
+                        bw_loss.write(tmpStrLoss);
+                        bw_loss.close();                        
+                    }catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+                */
+
+                //log.info("\n********************************Loss: {}\n",tmpStrLoss);
+            }
+        }
+    }
+
+
     /**
      * Processes incoming packets.
      */
@@ -700,51 +844,89 @@ public class LldpLinkProvider extends AbstractProvider implements ProbedLinkProv
             if (ld.handleLldp(context)) {
                 context.block();
             }
+            
 
-            ArrayList<String> arrNetWorkPara = new ArrayList<String>();
-            arrNetWorkPara.add(LinkDiscovery.de_link);
-            arrNetWorkPara.add(LinkDiscovery.pl_link);
-            arrNetWorkPara.add(LinkDiscovery.r_link);
-            if(!linkWeight.keySet().contains(LinkDiscovery.idLink)){
-                linkWeight.put(LinkDiscovery.idLink, arrNetWorkPara);
-            }else{
-                linkWeight.replace(LinkDiscovery.idLink, arrNetWorkPara);
-            }
-            try {
-                BufferedWriter bw = new BufferedWriter(new FileWriter("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/link_para.csv"));
-                String wString = "";
-                for(String s: linkWeight.keySet()){
-                    if(linkWeight.get(s).size() == 3){
-                        wString = wString + ";" + s+"*"+ linkWeight.get(s).get(0)+"*"+ linkWeight.get(s).get(1)+"*"+ linkWeight.get(s).get(2);
+            if(ld != null){
+
+                //if((ld.srcLink.compareTo("of:0000000000000015") == 0 && ld.dstLink.compareTo("of:0000000000000002") == 0) || (ld.srcLink.compareTo("of:0000000000000002") == 0 && ld.dstLink.compareTo("of:0000000000000016") == 0)){
+                //log.info("\nLink2 from {} to {}\n",ld.srcLink,ld.dstLink);
+
+                if(ld.validatedLink != 0){
+                    ArrayList<String> arrNetWorkPara = new ArrayList<String>();
+                    ArrayList<String> arrPortStatisticPara = new ArrayList<String>();
+                    arrNetWorkPara.add(ld.de_link);
+                    arrNetWorkPara.add(ld.pl_link);
+                    arrNetWorkPara.add(ld.r_link);
+
+                    arrPortStatisticPara.add(ld.bSentSrc_link);
+                    arrPortStatisticPara.add(ld.bReceivedSrc_link);
+                    arrPortStatisticPara.add(ld.pSentSrc_link);
+                    arrPortStatisticPara.add(ld.pReceivedSrc_link);
+
+                    if(linkWeight.size() == 0){
+                        linkWeight.put(ld.idLink, arrNetWorkPara);
+
+                        portStaTopo.put(ld.idLink, arrPortStatisticPara);
+                    }else{
+                        if(!linkWeight.keySet().contains(ld.idLink)){
+                            linkWeight.put(ld.idLink, arrNetWorkPara);
+
+                            portStaTopo.put(ld.idLink, arrPortStatisticPara);
+                        }else{
+                            linkWeight.replace(ld.idLink, arrNetWorkPara);
+
+                            portStaTopo.replace(ld.idLink, arrPortStatisticPara);
+                        }
                     }
-                    
+
+                    String wString = "", sPortStatistic = "";
+                    //Change 20 if use another topo 5*4
+                    int tmpWeightValue = 5*4;
+                    try {
+                        if(linkWeight.size() >= tmpWeightValue){
+                        //if(linkWeight.size() >= 2){
+                            BufferedWriter bw = new BufferedWriter(new FileWriter("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/link_para.csv"));
+                            for(String s: linkWeight.keySet()){
+                                if(linkWeight.get(s).size() == 3){
+                                    wString = wString + ";" + s+"*"+ linkWeight.get(s).get(0)+"*"+ linkWeight.get(s).get(1)+"*"+ linkWeight.get(s).get(2);
+                                }
+                            
+                            }
+                            if(wString.length() >= 2){
+                                bw.write(wString.substring(1, wString.length()));
+                            }
+                            
+                            bw.close();
+                        }
+                        if(portStaTopo.size() >= tmpWeightValue){
+                            BufferedWriter bw2 = new BufferedWriter(new FileWriter("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/portStatistic.csv"));
+                            for(String s: portStaTopo.keySet()){
+                                if(portStaTopo.get(s).size() == 4){
+                                    sPortStatistic = sPortStatistic + ";" + s+"*"+ portStaTopo.get(s).get(0)+"*"+ portStaTopo.get(s).get(1)+"*"+ portStaTopo.get(s).get(2)+"*"+portStaTopo.get(s).get(3);
+                                }
+                            
+                            }
+                            if(sPortStatistic.length() >= 2){
+                                bw2.write(sPortStatistic.substring(1, sPortStatistic.length()));
+                            }
+                            
+                            bw2.close();
+                        }
+
+                        
+                    }catch (IOException e) {
+                        e.printStackTrace();
+                    }
+
+
                 }
-                bw.write(wString.substring(1, wString.length()));
-                bw.close();
-            }catch (Exception e) {
-            e.printStackTrace();
+                ld.validatedLink = 1;
+
+                //}
             }
 
-            /*
-            //Save link weight to file for path computation
-            if(!linkWeight.keySet().contains(LinkDiscovery.idLink)){
-                linkWeight.put(LinkDiscovery.idLink, LinkDiscovery.lWeight);
-            }else{
-                linkWeight.replace(LinkDiscovery.idLink, LinkDiscovery.lWeight);
-            }
-            try {
-                BufferedWriter bw = new BufferedWriter(new FileWriter("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/link_para.csv"));
-                String wString = "";
-                for(String s: linkWeight.keySet()){
-                    wString = wString + ";" + s+","+ linkWeight.get(s);
-                }
-                bw.write(wString.substring(1, wString.length()));
-                bw.close();
-            }catch (Exception e) {
-            e.printStackTrace();
-            }
-            //log.info("\n*********************************Size:{}, Link: {}, Weight: {}\n", linkWeight.keySet().size(), LinkDiscovery.idLink, LinkDiscovery.lWeight);
-            */
+
+
         }
     }
 
