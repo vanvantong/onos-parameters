@@ -36,8 +36,8 @@ import static org.slf4j.LoggerFactory.getLogger;
 import java.util.Map;
 import java.lang.*;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+//import java.util.concurrent.ConcurrentHashMap;
+//import java.util.concurrent.CopyOnWriteArrayList;
 
 
 
@@ -78,7 +78,8 @@ public class ONOSLLDP extends LLDP {
     private final byte[] ttlValue = new byte[] {0, 0x78};
 
     // Arraylist for packet loss of LLDP packets
-    public static Map<String, ArrayList<Long>> linkPacketLossLLDP = new ConcurrentHashMap<String, ArrayList<Long>>();
+    //public static Map<String, ArrayList<Long>> linkPacketLossLLDP = new ConcurrentHashMap<String, ArrayList<Long>>();
+    public static Map<String, ArrayList<Long>> linkPacketLossLLDP = new HashMap<String, ArrayList<Long>>();
 
 
     // Only needs to be accessed from LinkProbeFactory.
@@ -361,12 +362,18 @@ public class ONOSLLDP extends LLDP {
         return null;
     }
     public static void removeElement(String id, long e){
-        linkPacketLossLLDP.get(id).remove(e);
+        if(linkPacketLossLLDP.get(id) != null){
+            if(linkPacketLossLLDP.get(id).contains(e)){
+                linkPacketLossLLDP.get(id).remove(e);
+            }
+        }
 
     }
     public static ArrayList<Long> getArray(String id){
-        return linkPacketLossLLDP.get(id);
-        
+        if(linkPacketLossLLDP.get(id) != null){
+            return linkPacketLossLLDP.get(id);
+        }
+        return null;        
     }
 
     /**
@@ -452,17 +459,20 @@ public class ONOSLLDP extends LLDP {
             probe.setSig(sig);
             sig = null;
             
-            //Add timestamp for calculating the packtlos of LLDP
-            String linkID = deviceId.toString()+"-"+String.valueOf(portNum);
-            if(!linkPacketLossLLDP.containsKey(linkID)){
+            //if((deviceId.compareTo("of:0000000000000006") == 0 && portNum == 3) || (deviceId.compareTo("of:0000000000000003") == 0 && portNum == 2)){
+                //Add timestamp for calculating the packtlos of LLDP
+                String linkID = deviceId.toString()+"-"+String.valueOf(portNum);
 
-                linkPacketLossLLDP.put(linkID, new ArrayList<Long>());
-                linkPacketLossLLDP.get(linkID).add(ts);
+                if(linkPacketLossLLDP.get(linkID) == null){
 
+                    linkPacketLossLLDP.put(linkID, new ArrayList<Long>());
+                    linkPacketLossLLDP.get(linkID).add(ts);
 
-            }else{
-                linkPacketLossLLDP.get(linkID).add(ts);
-            }
+                }else{
+                    linkPacketLossLLDP.get(linkID).add(ts);
+                }
+            //}
+            
             
 
         }
