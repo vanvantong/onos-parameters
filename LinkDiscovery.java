@@ -69,6 +69,7 @@ import java.util.*;
 import org.onosproject.net.device.PortStatistics;
 
 
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -76,10 +77,13 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-
-
+import java.util.LinkedList; 
+import java.util.Queue; 
+import org.onlab.packet.LLDPOrganizationalTLV;
 
 import org.onosproject.persistence.PersistenceService;
+
+
 
 /**
  * Run discovery process from a physical switch. Ports are initially labeled as
@@ -106,9 +110,21 @@ public class LinkDiscovery implements TimerTask {
 
     ArrayList<Timestamp> timePara = new ArrayList<Timestamp>();
     // Initializing a dictionary of link delay
+
+    /*
     public Map<String, ArrayList<Float>> linkDelay = new HashMap<String, ArrayList<Float>>();
     public Map<String, ArrayList<Float>> linkPacketLoss = new HashMap<String, ArrayList<Float>>();
     public Map<String, ArrayList<Float>> linkRate = new HashMap<String, ArrayList<Float>>(); 
+    */
+    public Map<String, Queue<Float>> linkDelay = new HashMap<String, Queue<Float>>();
+    public Map<String, Queue<Float>> linkPacketLoss = new HashMap<String, Queue<Float>>();
+    public Map<String, Queue<Float>> linkRate = new HashMap<String, Queue<Float>>(); 
+
+    public Map<String, Queue<Float>> linkBSentSrc = new HashMap<String, Queue<Float>>();
+    public Map<String, Queue<Float>> linkBReceivedSrc = new HashMap<String, Queue<Float>>();
+    public Map<String, Queue<Float>> linkPSentSrc = new HashMap<String, Queue<Float>>(); 
+    public Map<String, Queue<Float>> linkPReceivedSrc = new HashMap<String, Queue<Float>>(); 
+
 
     public float link_capacity = 10;
     public int threshold_packet_loss = 3000;
@@ -119,7 +135,13 @@ public class LinkDiscovery implements TimerTask {
     public static float rLink = 0;
     public static float dLink = 0;
     public static float plLLDP = 0;
+    public static int validatedLink = 1;
+
+
+    public static float rateQoE = 0;
     public static String de_link = "", pl_link = "", r_link = "";
+    public static String bSentSrc_link = "", bReceivedSrc_link = "", pSentSrc_link = "", pReceivedSrc_link = "";
+    public static String srcLink = "", dstLink = "";
 
     public Map<String, Integer> countPara = new HashMap<String, Integer>();
 
@@ -240,218 +262,78 @@ public class LinkDiscovery implements TimerTask {
         return false;
     }
 
-    public boolean writeToFileTimeStamps(String nFile, float delay, float packetLoss, float linkUtilization, float linkWeight){
-
-        try {
-            BufferedWriter wr = new BufferedWriter(new FileWriter(nFile));
-            wr.write(delay+","+packetLoss+","+linkUtilization+","+linkWeight);
-            wr.close();       
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return true;
-
-    }
-
-/*
 
 
 
-    public boolean writeToFile(String nFile, String id_port){
-        try {
-            // If the number of parameters in array is equal to arrSize, use the threshold to create the original array
-            BufferedWriter writer = new BufferedWriter(new FileWriter(nFile));
-            if(linkDelay.get(id_port).size() == arrSize){
-                //log.info("Delay 2: {}", linkDelay.get(id_port).toString());
-                //log.info("Packet loss 2: {}", linkPacketLoss.get(id_port).toString());
-                //log.info("Rate 2: {}", linkRate.get(id_port).toString());
-                int threshold = countPara.get(id_port) + 1;
-                String de_link=String.valueOf(linkDelay.get(id_port).get(threshold));
-                String pl_link = String.valueOf(linkPacketLoss.get(id_port).get(threshold));
-                String r_link = String.valueOf(linkRate.get(id_port).get(threshold));
-
-                for(int i = threshold + 1; i < arrSize; i++){
-                    de_link = de_link + "," + String.valueOf(linkDelay.get(id_port).get(i));
-                    pl_link = pl_link + "," + String.valueOf(linkPacketLoss.get(id_port).get(i));
-                    r_link = r_link + "," + String.valueOf(linkRate.get(id_port).get(i));
-                }
-                for(int i = 0; i < threshold; i++){
-                    de_link = de_link + "," + String.valueOf(linkDelay.get(id_port).get(i));
-                    pl_link = pl_link + "," + String.valueOf(linkPacketLoss.get(id_port).get(i));
-                    r_link = r_link + "," + String.valueOf(linkRate.get(id_port).get(i));
-                }
-                writer.write(de_link+"\n");
-                writer.write(pl_link+"\n");
-                writer.write(r_link+"\n");
-
-            }else{
-                //log.info("Delay 1: {}", linkDelay.get(id_port).toString());
-                //log.info("Packet loss 1: {}", linkPacketLoss.get(id_port).toString());
-                //log.info("Rate 1: {}", linkRate.get(id_port).toString());
-                String de_link=String.valueOf(linkDelay.get(id_port).get(0));
-                String pl_link = String.valueOf(linkPacketLoss.get(id_port).get(0));
-                String r_link = String.valueOf(linkRate.get(id_port).get(0));
-                int count_pa = linkDelay.get(id_port).size();
-                for(int i = 1; i < count_pa; i++){
-                    de_link = de_link + "," + String.valueOf(linkDelay.get(id_port).get(i));
-                    pl_link = pl_link + "," + String.valueOf(linkPacketLoss.get(id_port).get(i));
-                    r_link = r_link + "," + String.valueOf(linkRate.get(id_port).get(i));
-                }
-                writer.write(de_link+"\n");
-                writer.write(pl_link+"\n");
-                writer.write(r_link+"\n");
-            }
-
-            writer.close();
-            
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return true;
-    }
-
-*/
-
-
-
-
-
-
-    /*
-     * Write the network parameters to file
-     * 
-     *
-     * @param nFile  The file name for storing network parameters
-     * @param id_port  The port id of switch observed
-     * @return true if handled
-     */
-    public boolean writeToFile(String nFile, String id_port){
-            de_link = "";
-            pl_link = "";
-            r_link = "";
-            // If the number of parameters in array is equal to arrSize, use the threshold to create the original array
-            if(linkDelay.get(id_port).size() == arrSize){
-                //log.info("Delay 2: {}", linkDelay.get(id_port).toString());
-                //log.info("Packet loss 2: {}", linkPacketLoss.get(id_port).toString());
-                //log.info("Rate 2: {}", linkRate.get(id_port).toString());
-                int threshold = countPara.get(id_port);
-                //de_link=String.valueOf(linkDelay.get(id_port).get(threshold));
-                //pl_link = String.valueOf(linkPacketLoss.get(id_port).get(threshold));
-                //r_link = String.valueOf(linkRate.get(id_port).get(threshold));
-
-                for(int i = threshold; i < arrSize; i++){
-                    de_link = de_link + "," + String.valueOf(linkDelay.get(id_port).get(i));
-                    pl_link = pl_link + "," + String.valueOf(linkPacketLoss.get(id_port).get(i));
-                    r_link = r_link + "," + String.valueOf(linkRate.get(id_port).get(i));
-                }
-                for(int i = 0; i < threshold; i++){
-                    de_link = de_link + "," + String.valueOf(linkDelay.get(id_port).get(i));
-                    pl_link = pl_link + "," + String.valueOf(linkPacketLoss.get(id_port).get(i));
-                    r_link = r_link + "," + String.valueOf(linkRate.get(id_port).get(i));
-                }
-
-
-            }else{
-                //log.info("Delay 1: {}", linkDelay.get(id_port).toString());
-                //log.info("Packet loss 1: {}", linkPacketLoss.get(id_port).toString());
-                //log.info("Rate 1: {}", linkRate.get(id_port).toString());
-                de_link=String.valueOf(linkDelay.get(id_port).get(0));
-                pl_link = String.valueOf(linkPacketLoss.get(id_port).get(0));
-                r_link = String.valueOf(linkRate.get(id_port).get(0));
-                int count_pa = linkDelay.get(id_port).size();
-                for(int i = 1; i < count_pa; i++){
-                    de_link = de_link + "," + String.valueOf(linkDelay.get(id_port).get(i));
-                    pl_link = pl_link + "," + String.valueOf(linkPacketLoss.get(id_port).get(i));
-                    r_link = r_link + "," + String.valueOf(linkRate.get(id_port).get(i));
-                }
-
-            }
-            if(de_link.length() > 0 && pl_link.length() > 0 && r_link.length() > 0){
-                de_link = de_link.substring(1);
-                pl_link = pl_link.substring(1);
-                r_link = r_link.substring(1);
-            }                       
-        return true;
-    }
-
-    /*
-     * Calculate the breakpoint on each link
-     * 
-     *
-     * @param id  The id of port
-     * @param cts  The current timestamp
-     * @param delay_link  The delay of link
-     * @param packet_loss  The packet loss on each link
-     * @param rate_link  The rateRx/rateTx     
-     * @return true if handled
-     */
-    public boolean breakPointCal(String id, Timestamp cts, float delay_link, float packet_loss, float rate_link){
-
+    public boolean saveArrPara(String id, Timestamp cts, float delay_link, float packet_loss, float rate_link, float bSentSrc, float bReceivedSrc, float pSentSrc, float pReceivedSrc){
         if(linkDelay.containsKey(id)){
-            int tmp = countPara.get(id);
-            if(tmp < arrSize){
-                if(linkDelay.get(id).size() != arrSize){
-                    linkDelay.get(id).add(delay_link);
-                    linkPacketLoss.get(id).add(packet_loss);
-                    linkRate.get(id).add(rate_link);
-                }else{
-                    linkDelay.get(id).set(tmp, delay_link);
-                    linkPacketLoss.get(id).set(tmp, packet_loss);
-                    linkRate.get(id).set(tmp, rate_link);
-                }
-                            
+            if(linkDelay.get(id).size() < arrSize){
+                linkDelay.get(id).add(delay_link);
+                linkPacketLoss.get(id).add(packet_loss);
+                linkRate.get(id).add(rate_link);
+
+                linkBSentSrc.get(id).add(bSentSrc);
+                linkBReceivedSrc.get(id).add(bReceivedSrc);
+                linkPSentSrc.get(id).add(pSentSrc);
+                linkPReceivedSrc.get(id).add(pReceivedSrc);
+
             }else{
-                countPara.replace(id, tmp - arrSize);
-                linkDelay.get(id).set(countPara.get(id), delay_link);
-                linkPacketLoss.get(id).set(countPara.get(id), packet_loss);
-                linkRate.get(id).set(countPara.get(id), rate_link);
+                //Remove para at the head of queue
+                float removeLatencyPara = linkDelay.get(id).remove();
+                float removePLPara = linkPacketLoss.get(id).remove();
+                float removeLUPara = linkRate.get(id).remove();
+                float tmp = 0;
+                tmp = linkBSentSrc.get(id).remove();
+                tmp = linkBReceivedSrc.get(id).remove();
+                tmp = linkPSentSrc.get(id).remove();
+                tmp = linkPReceivedSrc.get(id).remove();
+
+                //Insert additional para
+                linkDelay.get(id).add(delay_link);
+                linkPacketLoss.get(id).add(packet_loss);
+                linkRate.get(id).add(rate_link);
+
+                linkBSentSrc.get(id).add(bSentSrc);
+                linkBReceivedSrc.get(id).add(bReceivedSrc);
+                linkPSentSrc.get(id).add(pSentSrc);
+                linkPReceivedSrc.get(id).add(pReceivedSrc);
             }
-            countPara.replace(id, countPara.get(id) + 1);
         }else{
-            linkDelay.put(id, new ArrayList<Float>());
-            linkPacketLoss.put(id, new ArrayList<Float>());
-            linkRate.put(id, new ArrayList<Float>());
+            linkDelay.put(id, new LinkedList<Float>());
+            linkPacketLoss.put(id, new LinkedList<Float>());
+            linkRate.put(id, new LinkedList<Float>());
 
             linkDelay.get(id).add(delay_link);
             linkPacketLoss.get(id).add(packet_loss);
             linkRate.get(id).add(rate_link);
-            countPara.put(id, 1);
+
+            linkBSentSrc.put(id, new LinkedList<Float>());
+            linkBReceivedSrc.put(id, new LinkedList<Float>());
+            linkPSentSrc.put(id, new LinkedList<Float>());
+            linkPReceivedSrc.put(id, new LinkedList<Float>());
+
+
+            linkBSentSrc.get(id).add(bSentSrc);
+            linkBReceivedSrc.get(id).add(bReceivedSrc);
+            linkPSentSrc.get(id).add(pSentSrc);
+            linkPReceivedSrc.get(id).add(pReceivedSrc);
         }
 
-        log.info("\nPort: {}, Size of link delay: {}, Array: {}, Count: {}\n", id, linkDelay.get(id).size(), linkDelay.get(id).toString(), countPara.get(id));
-        log.info("\nPort: {}, Size of packet loss: {}, Array: {}, Count: {}\n", id, linkPacketLoss.get(id).size(), linkPacketLoss.get(id).toString(), countPara.get(id));
-        log.info("\nPort: {}, Size of link rate: {}, Array: {}, Count: {}\n", id, linkRate.get(id).size(), linkRate.get(id).toString(), countPara.get(id));
-        //log.info("Size: {}", linkDelay.get(id).size() );
+        if(linkDelay.get(id).size() == arrSize){
+            de_link = linkDelay.get(id).toString().substring(1,linkDelay.get(id).toString().length()-1).replaceAll("\\s+","");
+            pl_link = linkPacketLoss.get(id).toString().substring(1,linkPacketLoss.get(id).toString().length()-1).replaceAll("\\s+","");
+            r_link =  linkRate.get(id).toString().substring(1,linkRate.get(id).toString().length()-1).replaceAll("\\s+","");
 
-        
-        if(linkDelay.get(id).size() > 0){
-            String directory = "/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/NetworkParameters/data-" +id + ".csv";
-            boolean wFile = writeToFile(directory, id);            
-            /*
-            BufferedReader reader = null;
-            Process shell = null;
-            try {
-                shell = Runtime.getRuntime().exec(new String[] { "Rscript", "/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/BreakPointDetection.R" });
-                reader = new BufferedReader(new InputStreamReader(shell.getInputStream()));
-                BufferedWriter wr= new BufferedWriter(new FileWriter("/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/Result.csv"));
 
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    String s[] = line.split(" ");
-                    log.info(s[1]);
-                    wr.write(s[1]+"\n");                 
-                }
-                wr.close();
-                reader.close();
-                
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        */
+            bSentSrc_link = linkBSentSrc.get(id).toString().substring(1,linkBSentSrc.get(id).toString().length()-1).replaceAll("\\s+","");
+            bReceivedSrc_link = linkBReceivedSrc.get(id).toString().substring(1,linkBReceivedSrc.get(id).toString().length()-1).replaceAll("\\s+","");
+            pSentSrc_link =  linkPSentSrc.get(id).toString().substring(1,linkPSentSrc.get(id).toString().length()-1).replaceAll("\\s+","");
+            pReceivedSrc_link =  linkPReceivedSrc.get(id).toString().substring(1,linkPReceivedSrc.get(id).toString().length()-1).replaceAll("\\s+","");             
+ 
+
+            //log.info("\n**********Byte sent: {}, byte received: {}, packet sent: {}, packet received: {}\n", bSentSrc_link, bReceivedSrc_link, pSentSrc_link, pReceivedSrc_link);
+
         }
-        
-
 
 
         return true;
@@ -459,114 +341,112 @@ public class LinkDiscovery implements TimerTask {
 
 
 
-
     /*
-     * Calculate the delay on each link
+     * Calculate the delay and packet loss on a link
      * 
      *
-     * @param onoslldpDelay  The lldp packet on each link
+     * @param onoslldpDelay  The lldp packet on a link
      * @return the link delay
      */
-    public String delayCal(ONOSLLDP onoslldpDelay, String id){
+    public String getDelayPL(ONOSLLDP onoslldpDelay, String id){
 
         //Calculate the link's delay using lldp
-        Timestamp current_timestamp = new Timestamp(System.currentTimeMillis());
-        ByteBuffer str_timestamp_tmp = ByteBuffer.allocate(8).put(onoslldpDelay.getTimestampTLV().getInfoString());
-        long current_ts_nano = (current_timestamp.getTime());
-        str_timestamp_tmp.flip();
-        long lldp_ts_nano = str_timestamp_tmp.getLong();
-        long delay = current_ts_nano - lldp_ts_nano;
-
-        //Remove the timestamp when the lldp packet reaches the controller
-        ONOSLLDP.removeElement(id, lldp_ts_nano);
-        ArrayList<Long> arrPacketLossLLDP = ONOSLLDP.getArray(id);
-
-        //log.info("Removing the timestamp of {} : {}", id, lldp_ts_nano);
-
+        long delay = 0;
         int count_packet_loss = 0;
-        if(arrPacketLossLLDP.size() != 0){
-            for(int i = 0; i < arrPacketLossLLDP.size(); i++){
-                if(current_ts_nano - arrPacketLossLLDP.get(i) > threshold_packet_loss){
-                    count_packet_loss  = count_packet_loss + 1;
-                    ONOSLLDP.removeElement(id, arrPacketLossLLDP.get(i));
+
+        Timestamp current_timestamp = new Timestamp(System.currentTimeMillis());
+        LLDPOrganizationalTLV tsLink = onoslldpDelay.getTimestampTLV();
+        if(tsLink != null){
+            ByteBuffer str_timestamp_tmp = ByteBuffer.allocate(8).put(tsLink.getInfoString());
+            long current_ts_nano = (current_timestamp.getTime());
+            str_timestamp_tmp.flip();
+            long lldp_ts_nano = str_timestamp_tmp.getLong();
+            delay = current_ts_nano - lldp_ts_nano;
+
+
+            //Remove the timestamp when the lldp packet reaches the controller
+            ONOSLLDP.removeElement(id, lldp_ts_nano);
+            ArrayList<Long> arrPacketLossLLDP = ONOSLLDP.getArray(id);
+            ArrayList<Long> arrTmpLoss = new ArrayList<Long>();
+
+            if(arrPacketLossLLDP != null){
+                if(arrPacketLossLLDP.size() >= 1){
+                    for(int i = 0; i < arrPacketLossLLDP.size(); i++){
+                        if(arrPacketLossLLDP.get(i) != null){
+                            if(current_ts_nano - arrPacketLossLLDP.get(i) > threshold_packet_loss){
+                                count_packet_loss  = count_packet_loss + 1;
+                                arrTmpLoss.add(arrPacketLossLLDP.get(i));
+                                
+                            }
+                        }
+
+                    }
+                    // Remove packets which are lost
+                    if(arrTmpLoss.size() >= 1){
+                        for(int j  = 0; j < arrTmpLoss.size(); j++){
+                            ONOSLLDP.removeElement(id, arrTmpLoss.get(j));
+                        }
+                    }
+                    arrTmpLoss.clear();
+
                 }
-                
             }
 
         }
-        log.info("\nPackets loss of LLDP of {}: {}\n", id, count_packet_loss);
+
+
+
+        ////Disable the log
+        //log.info("\nPackets loss of LLDP of {}: {}\n", id, count_packet_loss);
 
         return delay + "," + count_packet_loss;
     }
 
 
-    /*
-     * Calculate the statistic on each port of switch
-     * 
-     *
-     * @param deviceId  Device Id of the switch
-     * @param sPort  The port which need to monitor 
-     * @return true if handled
-     */
-    public String statisticsCal(DeviceId sDeviceId, PortNumber sPort, DeviceId dDeviceId, PortNumber dPort){
 
-        //Calculate the statistic
-        //getPortDeltaStatistics: Get statistic each 3 second
-        //getPortStatistics: Accumulate from the moment running onos controller to now
-
-        float packetLoss = 0;
+    //Get only link utilization on a link
+    public String getLinkUtilization(DeviceId sDeviceId, PortNumber sPort, DeviceId dDeviceId, PortNumber dPort){
         float link_utilization = 0;
 
-        float pSent_Src = 0;
-        float pReceived_Dest = 0;
-        float bSent_Src = 0;
-        float bSent_Dst = 0;
-
+        float bSent_Src = 0, bSent_Dst = 0, bReceived_Src = 0, pSent_Src = 0, pReceived_Src = 0;
 
         DeviceService deviceService = context.deviceService();
-        //Null point exception
-        if (deviceService.getDeltaStatisticsForPort(deviceService.getDevice(sDeviceId).id(), sPort) != null){
-            pSent_Src = deviceService.getDeltaStatisticsForPort(deviceService.getDevice(sDeviceId).id(), sPort).packetsSent();
-        }
-        if (deviceService.getDeltaStatisticsForPort(deviceService.getDevice(dDeviceId).id(), dPort) != null){
-            pReceived_Dest = deviceService.getDeltaStatisticsForPort(deviceService.getDevice(dDeviceId).id(), dPort).packetsReceived();
-        }
-        if(deviceService.getDeltaStatisticsForPort(deviceService.getDevice(sDeviceId).id(), sPort) != null){
-            bSent_Src = deviceService.getDeltaStatisticsForPort(deviceService.getDevice(sDeviceId).id(), sPort).bytesSent();
-        }
-        if(deviceService.getDeltaStatisticsForPort(deviceService.getDevice(dDeviceId).id(), dPort) != null){
-            bSent_Dst = deviceService.getDeltaStatisticsForPort(deviceService.getDevice(dDeviceId).id(), dPort).bytesSent();
-        }
-        
+        if(deviceService != null){
+            DeviceId dID = deviceService.getDevice(sDeviceId).id();
+            if(dID != null){
+                PortStatistics sPortSta = deviceService.getDeltaStatisticsForPort(dID, sPort);
+                if(sPortSta != null){
+                     bSent_Src = sPortSta.bytesSent();
 
-        
-        if(pReceived_Dest > 0){
-            packetLoss = (pSent_Src - pReceived_Dest)/pSent_Src;
-        }else{
-            packetLoss = 0;
-        }
-        
-
-        
-        link_utilization = (bSent_Src + bSent_Dst)/(link_capacity * 1000000);
-        
-        
-
-        Device d = deviceService.getDevice(sDeviceId);
-        List<PortStatistics> portStatisticsList =  deviceService.getPortDeltaStatistics(d.id());
-        for (PortStatistics portStats : portStatisticsList) {   
-            if(portStats.portNumber().toLong() == sPort.toLong()){
-                float duration = (float) portStats.durationSec();
-                float rateRx = duration > 0 ? portStats.bytesReceived() * 8 / duration : 0;
-                float rateTx = duration > 0 ? portStats.bytesSent() * 8 / duration : 0;
-                log.info("\n\n{}:{} received {} bytes, {} packets, rateReceiver {} bps, drop {}, {} and sent {} bytes, {} packets, rateSender {} bps, drop {}, {}  with time interval of {} s\n\n", sDeviceId, portStats.portNumber(), portStats.bytesReceived(), portStats.packetsReceived(), rateRx, portStats.packetsRxDropped(), portStats.packetsRxErrors(), portStats.bytesSent(),  portStats.packetsSent(), rateTx, portStats.packetsTxDropped(), portStats.packetsTxErrors() , duration);
+                     //Additonal port statistic
+                     bReceived_Src = sPortSta.bytesReceived();
+                     pSent_Src = sPortSta.packetsSent();
+                     pReceived_Src = sPortSta.packetsReceived();
+                }
+                PortStatistics dPortSta  = deviceService.getDeltaStatisticsForPort(dID, dPort);
+                if(dPortSta != null){
+                    bSent_Dst = dPortSta.bytesSent();
+                }
+                if(sPortSta != null && dPortSta != null){
+                    link_utilization = (bSent_Src + bSent_Dst)/(link_capacity * 1000000);
+                }
             }
+            //log.info("\n**********Byte sent: {}, byte received: {}, packet sent: {}, packet received: {}\n", bSent_Src, bReceived_Src, pSent_Src, pReceived_Src);
+            /*
+            if(deviceService.getDeltaStatisticsForPort(deviceService.getDevice(sDeviceId).id(), sPort) != null){
+            bSent_Src = deviceService.getDeltaStatisticsForPort(deviceService.getDevice(sDeviceId).id(), sPort).bytesSent();
+            }
+            if(deviceService.getDeltaStatisticsForPort(deviceService.getDevice(dDeviceId).id(), dPort) != null){
+                bSent_Dst = deviceService.getDeltaStatisticsForPort(deviceService.getDevice(dDeviceId).id(), dPort).bytesSent();
+            }
+            */
         }
 
-        return String.valueOf(packetLoss)+","+String.valueOf(link_utilization);
-    } 
+        
 
- 
+        return link_utilization + "," + bSent_Src + "," + bReceived_Src + "," + pSent_Src + "," + pReceived_Src;
+
+    }
 
     private boolean processOnosLldp(PacketContext packetContext, Ethernet eth) {
         ONOSLLDP onoslldp = ONOSLLDP.parseONOSLLDP(eth);
@@ -579,8 +459,11 @@ public class LinkDiscovery implements TimerTask {
                         Type.DIRECT : Type.INDIRECT;
 
                 /* Verify MAC in LLDP packets */
+
+                //Add 2s to maxDiscoveryDelay
                 if (!ONOSLLDP.verify(onoslldp, context.lldpSecret(), context.maxDiscoveryDelay())) {
                     log.warn("LLDP Packet failed to validate, timestamp!");
+                    validatedLink = 0;
                     return true;
                 }
             }
@@ -601,60 +484,53 @@ public class LinkDiscovery implements TimerTask {
 
                     LinkDescription ld = new DefaultLinkDescription(src, dst, lt);
 
+                    srcLink = srcDeviceId.toString();
+                    dstLink = dstDeviceId.toString();
+
+                    //log.info("\nLink0 from {} to {}\n",srcLink,dstLink);
+                    //if((srcLink.compareTo("of:0000000000000006") == 0 && dstLink.compareTo("of:0000000000000003") == 0) || (srcLink.compareTo("of:0000000000000003") == 0 && dstLink.compareTo("of:0000000000000007") == 0)){
+                        //log.info("\nLink1 from {} to {}\n",srcLink,dstLink);
+                        //Calculate the link utilization
+                        float rLink = 0, bSentSrc = 0, bReceivedSrc = 0, pSentSrc = 0, pReceivedSrc = 0;
+                        String[] tmpSta = getLinkUtilization(srcDeviceId, srcPort, dstDeviceId, dstPort).split(",");
+                        if(tmpSta.length == 5){
+                            rLink = Float.parseFloat(tmpSta[0]);
+                            if(rLink > 1){
+                                rLink = 1;
+                            }
+                            bSentSrc = Float.parseFloat(tmpSta[1]);
+                            bReceivedSrc = Float.parseFloat(tmpSta[2]);
+                            pSentSrc = Float.parseFloat(tmpSta[3]);
+                            pReceivedSrc = Float.parseFloat(tmpSta[4]);
+
+                        }
+
+                        //Avoid linkU = 0
+
+                        //Calculate the delay and packet loss
+                        Timestamp current_timestamp_para = new Timestamp(System.currentTimeMillis());
+                        String idPort = srcDeviceId.toString()+"-"+srcPort.toString();
+                        idLink = srcDeviceId.toString()+"-"+dstDeviceId.toString();
+                        
+                        String strDPL = getDelayPL(onoslldp, idPort);
+                        if (strDPL != "" && strDPL != ","){
+                            String[] s = strDPL.split(",");
+                            dLink = Float.parseFloat(s[0]);
+                            plLLDP = (Float.parseFloat(s[1]) > 1 ? 1 : Float.parseFloat(s[1]));
+                        }
+                        
+                        if(!((dLink == 0 && plLLDP == 0) || rLink == 0)){
+                            //Save data to arr of link paras
+                            saveArrPara(idPort, current_timestamp_para, dLink, plLLDP, rLink, bSentSrc, bReceivedSrc, pSentSrc, pReceivedSrc);
+                        }else{
+                            validatedLink = 0;
+                        }
+                        //log.info("\n**********Byte sent: {}, byte received: {}, packet sent: {}, packet received: {}\n", bSentSrc, bReceivedSrc, pSentSrc, pReceivedSrc);
+                        //log.info("\nLink from {}:{} to {}:{}, Delay: {} ms, Packet loss: {}, Link utilization: {}\n", srcDeviceId, srcPort, dstDeviceId, dstPort, dLink, plLLDP, rLink);
 
 
-                    
-                    //Calculate the statistic
-                    String strTmp = statisticsCal(srcDeviceId, srcPort, dstDeviceId, dstPort);
-                    plLink = 0;
-                    rLink = 0;
-                    dLink = 0;
-                    if (strTmp != ""){
-                        String[] strPara = strTmp.split(",");
-                        plLink = Float.parseFloat(strPara[0]);
-                        rLink = Float.parseFloat(strPara[1]);
-                    }else{
-                        plLink = 0;
-                        rLink = 0;
-                    }
-                    if(rLink > 1){
-                        rLink = 1;
-                    }
+                    //}
 
-                    Timestamp current_timestamp_para = new Timestamp(System.currentTimeMillis());
-                    String idPort = srcDeviceId.toString()+"-"+srcPort.toString();
-                    idLink = srcDeviceId.toString()+"-"+dstDeviceId.toString();
-                    //idLink = srcDeviceId.toString()+"/"+srcPort.toString();
-                    //Calculate the link delay
-                    String strDPL = delayCal(onoslldp, idPort);
-                    if (strDPL != ""){
-                        String[] s = strDPL.split(",");
-                        dLink = Float.parseFloat(s[0]);
-                        plLLDP = Float.parseFloat(s[1]) / 100;
-                    }else{
-                        dLink = 0;
-                        plLLDP = 0;
-                    }
-                    //dLink, plLLDP
-                    log.info("\nLink from {}:{} to {}:{}, Delay: {} ms, Packet loss: {}, Link utilization: {}\n", srcDeviceId, srcPort, dstDeviceId, dstPort, dLink, plLLDP, rLink);
-                    /*
-                    if(dLink >= 1000){
-                        lWeight = (float)0.33 * (1 + plLink + rLink );
-                    }else{
-                        float dLink_tmp =  (float)dLink / 1000;
-                        lWeight = (float)0.33 * (dLink_tmp + plLink + rLink );
-                    }
-                    double lWeight_tmp = Math.round(lWeight * Math.pow(10, 5)) / Math.pow(10, 5);
-                    lWeight = (float)lWeight_tmp;
-
-
-                    //String directory = "/home/vantong/onos/providers/lldpcommon/src/main/java/org/onosproject/provider/lldpcommon/NetworkParameters/data-" +idPort + ".csv";
-                    //boolean wFile = writeToFileTimeStamps(directory, dLink, plLink, rLink, lWeight); 
-                    
-                    */
-                    //Calculate the breakpoint
-                    //plLink
-                    breakPointCal(idPort, current_timestamp_para, dLink, plLLDP, rLink);
 
                     
 
